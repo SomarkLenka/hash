@@ -21,7 +21,6 @@ RUN chmod +x start.py
 # Environment variables
 ENV DATABASE_PATH=/app/data/hashrate.db
 ENV PYTHONUNBUFFERED=1
-ENV PORT=5000
 
 # Expose port
 EXPOSE 5000
