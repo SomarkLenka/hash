@@ -51,15 +51,22 @@ DATABASE = os.environ.get('DATABASE_PATH', 'hashrate.db')
 CLEANUP_INTERVAL = 3600  # Clean old records every hour
 RETENTION_DAYS = 7  # Keep data for 7 days
 
-# Initialize Bigtable if configured
+# Initialize Bigtable lazily to avoid startup timeout
 bigtable_db = None
-if USE_BIGTABLE:
-    try:
-        bigtable_db = BigtableDB()
-        logger.info("Bigtable connection initialized")
-    except Exception as e:
-        logger.error(f"Failed to initialize Bigtable: {e}")
-        USE_BIGTABLE = False
+
+def get_bigtable_db():
+    """Get or create Bigtable connection lazily"""
+    global bigtable_db
+    if USE_BIGTABLE and bigtable_db is None:
+        try:
+            logger.info("Initializing Bigtable connection...")
+            bigtable_db = BigtableDB()
+            logger.info("Bigtable connection initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Bigtable: {e}")
+            # Fall back to SQLite if Bigtable fails
+            return None
+    return bigtable_db
 
 
 @dataclass
@@ -189,7 +196,11 @@ def cleanup_old_records():
     """Remove records older than retention period"""
     if USE_BIGTABLE:
         try:
-            deleted = bigtable_db.cleanup_old_records(days=RETENTION_DAYS)
+            db = get_bigtable_db()
+            if db:
+                deleted = db.cleanup_old_records(days=RETENTION_DAYS)
+            else:
+                deleted = 0
             if deleted > 0:
                 logger.info(f"Cleaned up {deleted} old records from Bigtable")
         except Exception as e:
@@ -282,8 +293,12 @@ def receive_hashrate():
             if 'efficiency' in data:
                 bigtable_data['efficiency'] = data['efficiency']
             
-            if not bigtable_db.save_hashrate(bigtable_data):
-                raise Exception("Failed to save to Bigtable")
+            db = get_bigtable_db()
+            if db:
+                if not db.save_hashrate(bigtable_data):
+                    raise Exception("Failed to save to Bigtable")
+            else:
+                raise Exception("Bigtable connection not available")
         else:
             db = get_db()
             db.execute('''
@@ -322,7 +337,11 @@ def receive_hashrate():
 def get_instances():
     """Get all active instances"""
     if USE_BIGTABLE:
-        instances = bigtable_db.get_instances()
+        db = get_bigtable_db()
+        if db:
+            instances = db.get_instances()
+        else:
+            instances = []
         return jsonify(instances)
     else:
         instances = hashrate_store.get_all()
@@ -342,7 +361,11 @@ def get_instance_history(instance_id):
         hours = int(request.args.get('hours', 24))
         
         if USE_BIGTABLE:
-            history = bigtable_db.get_instance_history(instance_id, hours)
+            db = get_bigtable_db()
+            if db:
+                history = db.get_instance_history(instance_id, hours)
+            else:
+                history = []
             return jsonify(history)
         else:
             db = get_db()
@@ -378,7 +401,11 @@ def get_summary():
     try:
         if USE_BIGTABLE:
             # For Bigtable, compute summary from current instances
-            instances = bigtable_db.get_instances()
+            db = get_bigtable_db()
+        if db:
+            instances = db.get_instances()
+        else:
+            instances = []
             if not instances:
                 return jsonify({
                     'unique_instances': 0,
