@@ -23,6 +23,13 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import humanize
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Import Bigtable support if configured
 USE_BIGTABLE = os.environ.get('USE_BIGTABLE', 'false').lower() == 'true'
 if USE_BIGTABLE:
@@ -32,13 +39,6 @@ if USE_BIGTABLE:
     except ImportError as e:
         logger.error(f"Failed to import BigtableDB: {e}")
         USE_BIGTABLE = False
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
