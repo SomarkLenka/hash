@@ -30,15 +30,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import Bigtable support if configured
+# Check if Bigtable should be used (defer import until needed)
 USE_BIGTABLE = os.environ.get('USE_BIGTABLE', 'false').lower() == 'true'
+BigtableDB = None  # Will be imported lazily
+
 if USE_BIGTABLE:
-    try:
-        from bigtable_db import BigtableDB
-        logger.info("Using Google Bigtable as database backend")
-    except ImportError as e:
-        logger.error(f"Failed to import BigtableDB: {e}")
-        USE_BIGTABLE = False
+    logger.info("Bigtable mode enabled - will connect when first needed")
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -56,9 +53,16 @@ bigtable_db = None
 
 def get_bigtable_db():
     """Get or create Bigtable connection lazily"""
-    global bigtable_db
+    global bigtable_db, BigtableDB
     if USE_BIGTABLE and bigtable_db is None:
         try:
+            # Import BigtableDB only when first needed
+            if BigtableDB is None:
+                logger.info("Importing BigtableDB module...")
+                from bigtable_db import BigtableDB as BigtableDBClass
+                BigtableDB = BigtableDBClass
+                logger.info("BigtableDB module imported successfully")
+            
             logger.info("Initializing Bigtable connection...")
             bigtable_db = BigtableDB()
             logger.info("Bigtable connection initialized successfully")
