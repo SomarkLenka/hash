@@ -14,8 +14,20 @@ class BigtableDB:
         instance_id = os.environ.get('BIGTABLE_INSTANCE_ID')
         table_id = os.environ.get('BIGTABLE_TABLE_ID', 'hashrate-monitor')
         
-        if not project_id or not instance_id:
-            raise ValueError("BIGTABLE_PROJECT_ID and BIGTABLE_INSTANCE_ID must be set")
+        if not project_id:
+            raise ValueError("BIGTABLE_PROJECT_ID must be set")
+        if not instance_id:
+            raise ValueError("BIGTABLE_INSTANCE_ID must be set. Please set it in your .env file or Railway environment variables")
+        
+        # Log the configuration being used
+        logger.info(f"Connecting to Bigtable - Project: {project_id}, Instance: {instance_id}, Table: {table_id}")
+        
+        # Check if GOOGLE_APPLICATION_CREDENTIALS is set
+        creds_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+        if creds_path:
+            logger.info(f"Using service account credentials from: {creds_path}")
+            if not os.path.exists(creds_path):
+                logger.warning(f"Service account file not found at {creds_path}")
         
         self.client = bigtable.Client(project=project_id, admin=True)
         self.instance = self.client.instance(instance_id)

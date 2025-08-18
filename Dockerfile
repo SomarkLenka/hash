@@ -15,7 +15,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files (changes most frequently, do this last)
 COPY . .
 
-# Environment variables
+# Ensure service account JSON and .env are in the container
+# The .env file will be loaded by python-dotenv
+# The path in .env will be relative to /app directory
+RUN if [ -f "adept-storm-466618-b4-7dc417b4e0e6.json" ]; then \
+        echo "Service account JSON found and copied"; \
+    else \
+        echo "Warning: Service account JSON not found"; \
+    fi
+
+# Environment variables - these can be overridden by Railway
 ENV DATABASE_PATH=/app/data/hashrate.db
 ENV PYTHONUNBUFFERED=1
 

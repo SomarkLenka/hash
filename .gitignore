@@ -33,6 +33,11 @@ data/
 .env
 .env.local
 
+# Service Account Keys
+*.json
+service-account.json
+adept-storm-466618-b4-7dc417b4e0e6.json
+
 # IDE
 .vscode/
 .idea/
