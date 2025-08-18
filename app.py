@@ -402,10 +402,11 @@ def get_summary():
         if USE_BIGTABLE:
             # For Bigtable, compute summary from current instances
             db = get_bigtable_db()
-        if db:
-            instances = db.get_instances()
-        else:
-            instances = []
+            if db:
+                instances = db.get_instances()
+            else:
+                instances = []
+            
             if not instances:
                 return jsonify({
                     'unique_instances': 0,
