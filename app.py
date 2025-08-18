@@ -4,6 +4,7 @@ Hashrate Monitoring Server
 Receives and displays hashrate data from distributed hash generators
 """
 
+print("Starting app.py import...")
 import os
 import json
 import time
@@ -23,6 +24,8 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import humanize
 
+print("All imports completed, configuring logging...")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -38,10 +41,14 @@ if USE_BIGTABLE:
     logger.info("Bigtable mode enabled - will connect when first needed")
 
 # Initialize Flask app
+logger.info("Initializing Flask app...")
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+logger.info("Configuring CORS...")
 CORS(app)
+logger.info("Initializing SocketIO...")
 socketio = SocketIO(app, cors_allowed_origins="*")
+logger.info("Flask app initialized successfully")
 
 # Database configuration
 DATABASE = os.environ.get('DATABASE_PATH', 'hashrate.db')
@@ -138,7 +145,9 @@ class HashrateStore:
 
 
 # Global hashrate store
+logger.info("Creating HashrateStore instance...")
 hashrate_store = HashrateStore()
+logger.info("HashrateStore created successfully")
 
 
 def get_db():
@@ -509,3 +518,5 @@ if __name__ == '__main__':
     
     # Run the app
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
+logger.info("App module loaded successfully")
