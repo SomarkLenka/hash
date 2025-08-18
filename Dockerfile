@@ -27,5 +27,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
-# Run the application - use PORT env var with default of 5000
-CMD gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:${PORT:-5000} app:app
+# Run the application - Railway sets PORT env var
+CMD sh -c "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:${PORT:-5000} app:app"
