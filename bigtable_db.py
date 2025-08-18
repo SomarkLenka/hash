@@ -1,5 +1,6 @@
 import os
 import json
+import tempfile
 from datetime import datetime, timedelta
 from google.cloud import bigtable
 from google.cloud.bigtable import column_family
@@ -22,12 +23,31 @@ class BigtableDB:
         # Log the configuration being used
         logger.info(f"Connecting to Bigtable - Project: {project_id}, Instance: {instance_id}, Table: {table_id}")
         
-        # Check if GOOGLE_APPLICATION_CREDENTIALS is set
+        # Handle authentication - check for JSON content first, then file path
+        creds_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
         creds_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-        if creds_path:
+        
+        if creds_json:
+            # If JSON content is provided as env var, write it to a temp file
+            logger.info("Using service account credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON env var")
+            try:
+                # Create a temporary file for the credentials
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    f.write(creds_json)
+                    temp_creds_path = f.name
+                
+                # Set the environment variable to point to the temp file
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_creds_path
+                logger.info(f"Created temporary credentials file at {temp_creds_path}")
+            except Exception as e:
+                logger.error(f"Failed to create temporary credentials file: {e}")
+                raise
+        elif creds_path:
             logger.info(f"Using service account credentials from: {creds_path}")
             if not os.path.exists(creds_path):
                 logger.warning(f"Service account file not found at {creds_path}")
+        else:
+            logger.warning("No Google Cloud credentials found. Will attempt to use default credentials.")
         
         self.client = bigtable.Client(project=project_id, admin=True)
         self.instance = self.client.instance(instance_id)

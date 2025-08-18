@@ -15,18 +15,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files (changes most frequently, do this last)
 COPY . .
 
-# Ensure service account JSON and .env are in the container
-# The .env file will be loaded by python-dotenv
-# The path in .env will be relative to /app directory
-RUN if [ -f "adept-storm-466618-b4-7dc417b4e0e6.json" ]; then \
-        echo "Service account JSON found and copied"; \
-    else \
-        echo "Warning: Service account JSON not found"; \
-    fi
-
-# Environment variables - these can be overridden by Railway
+# Environment variables - these will be overridden by Railway
 ENV DATABASE_PATH=/app/data/hashrate.db
 ENV PYTHONUNBUFFERED=1
+
+# Note: Bigtable configuration should be set via Railway environment variables:
+# USE_BIGTABLE=true
+# BIGTABLE_PROJECT_ID=adept-storm-466618-b4
+# BIGTABLE_INSTANCE_ID=hash-generator-instance
+# BIGTABLE_TABLE_ID=hashes
+# GOOGLE_APPLICATION_CREDENTIALS_JSON={paste entire JSON content}
 
 # Expose port
 EXPOSE 5000
