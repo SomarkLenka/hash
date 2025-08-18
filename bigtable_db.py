@@ -69,12 +69,12 @@ class BigtableDB:
         else:
             logger.warning("No Google Cloud credentials found. Will attempt to use default credentials.")
         
-        self.client = bigtable.Client(project=project_id, admin=True)
+        self.client = bigtable.Client(project=project_id, admin=False)  # Don't use admin mode
         self.instance = self.client.instance(instance_id)
         self.table = self.instance.table(table_id)
         
-        # Create table and column families if they don't exist
-        self._setup_table()
+        # Skip table setup for now - assume table exists
+        logger.info(f"Bigtable table configured: {table_id} (assuming it exists)")
     
     def _setup_table(self):
         """Create table and column families if they don't exist"""
@@ -103,6 +103,7 @@ class BigtableDB:
             timestamp = data.get('timestamp', datetime.utcnow().isoformat())
             row_key = f"{data['instance_id']}#{timestamp}"
             
+            logger.info(f"Attempting to save data with row key: {row_key}")
             row = self.table.direct_row(row_key)
             
             # Instance data
