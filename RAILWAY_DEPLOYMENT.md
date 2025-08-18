@@ -13,9 +13,18 @@ BIGTABLE_TABLE_ID=hashes
 ```
 
 ### Google Cloud Authentication:
-Copy the entire content of your service account JSON file and set it as:
+
+**Option 1: Base64 Encoded (Recommended for Railway)**
+1. Base64 encode your service account JSON file
+2. Set the environment variable:
 ```
-GOOGLE_APPLICATION_CREDENTIALS_JSON={"type": "service_account", "project_id": "adept-storm-466618-b4", ...entire JSON content...}
+GOOGLE_APPLICATION_CREDENTIALS_BASE64=<base64_encoded_string>
+```
+The base64 string is in the file `service-account-base64.txt`
+
+**Option 2: Raw JSON (may have issues with quotes)**
+```
+GOOGLE_APPLICATION_CREDENTIALS_JSON={"type": "service_account", ...}
 ```
 
 ### Optional:

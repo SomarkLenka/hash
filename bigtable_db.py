@@ -1,6 +1,7 @@
 import os
 import json
 import tempfile
+import base64
 from datetime import datetime, timedelta
 from google.cloud import bigtable
 from google.cloud.bigtable import column_family
@@ -23,11 +24,30 @@ class BigtableDB:
         # Log the configuration being used
         logger.info(f"Connecting to Bigtable - Project: {project_id}, Instance: {instance_id}, Table: {table_id}")
         
-        # Handle authentication - check for JSON content first, then file path
+        # Handle authentication - check for base64, JSON content, then file path
+        creds_base64 = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_BASE64')
         creds_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
         creds_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
         
-        if creds_json:
+        if creds_base64:
+            # If base64 encoded JSON is provided, decode it first
+            logger.info("Using base64 encoded service account credentials from GOOGLE_APPLICATION_CREDENTIALS_BASE64")
+            try:
+                # Decode the base64 string
+                decoded_json = base64.b64decode(creds_base64).decode('utf-8')
+                
+                # Create a temporary file for the credentials
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    f.write(decoded_json)
+                    temp_creds_path = f.name
+                
+                # Set the environment variable to point to the temp file
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_creds_path
+                logger.info(f"Created temporary credentials file from base64 at {temp_creds_path}")
+            except Exception as e:
+                logger.error(f"Failed to decode base64 credentials: {e}")
+                raise
+        elif creds_json:
             # If JSON content is provided as env var, write it to a temp file
             logger.info("Using service account credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON env var")
             try:
