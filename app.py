@@ -19,6 +19,16 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import humanize
 
+# Import Bigtable support if configured
+USE_BIGTABLE = os.environ.get('USE_BIGTABLE', 'false').lower() == 'true'
+if USE_BIGTABLE:
+    try:
+        from bigtable_db import BigtableDB
+        logger.info("Using Google Bigtable as database backend")
+    except ImportError as e:
+        logger.error(f"Failed to import BigtableDB: {e}")
+        USE_BIGTABLE = False
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +46,16 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 DATABASE = os.environ.get('DATABASE_PATH', 'hashrate.db')
 CLEANUP_INTERVAL = 3600  # Clean old records every hour
 RETENTION_DAYS = 7  # Keep data for 7 days
+
+# Initialize Bigtable if configured
+bigtable_db = None
+if USE_BIGTABLE:
+    try:
+        bigtable_db = BigtableDB()
+        logger.info("Bigtable connection initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize Bigtable: {e}")
+        USE_BIGTABLE = False
 
 
 @dataclass
@@ -125,55 +145,67 @@ def close_connection(exception):
 
 def init_db():
     """Initialize database tables"""
-    with app.app_context():
-        db = get_db()
-        db.execute('''
-            CREATE TABLE IF NOT EXISTS hashrate_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                instance_id TEXT NOT NULL,
-                total_hashes INTEGER,
-                overall_hashrate REAL,
-                recent_hashrate REAL,
-                gpu_count INTEGER,
-                gpu_available BOOLEAN,
-                ip_address TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Create index for faster queries
-        db.execute('''
-            CREATE INDEX IF NOT EXISTS idx_instance_timestamp 
-            ON hashrate_history(instance_id, timestamp DESC)
-        ''')
-        
-        db.execute('''
-            CREATE INDEX IF NOT EXISTS idx_created_at 
-            ON hashrate_history(created_at)
-        ''')
-        
-        db.commit()
-        logger.info("Database initialized")
+    if USE_BIGTABLE:
+        # Bigtable initialization is handled in BigtableDB constructor
+        logger.info("Using Bigtable - table initialization handled by BigtableDB")
+    else:
+        with app.app_context():
+            db = get_db()
+            db.execute('''
+                CREATE TABLE IF NOT EXISTS hashrate_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    instance_id TEXT NOT NULL,
+                    total_hashes INTEGER,
+                    overall_hashrate REAL,
+                    recent_hashrate REAL,
+                    gpu_count INTEGER,
+                    gpu_available BOOLEAN,
+                    ip_address TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create index for faster queries
+            db.execute('''
+                CREATE INDEX IF NOT EXISTS idx_instance_timestamp 
+                ON hashrate_history(instance_id, timestamp DESC)
+            ''')
+            
+            db.execute('''
+                CREATE INDEX IF NOT EXISTS idx_created_at 
+                ON hashrate_history(created_at)
+            ''')
+            
+            db.commit()
+            logger.info("SQLite database initialized")
 
 
 def cleanup_old_records():
     """Remove records older than retention period"""
-    with app.app_context():
+    if USE_BIGTABLE:
         try:
-            db = get_db()
-            cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
-            
-            result = db.execute(
-                'DELETE FROM hashrate_history WHERE created_at < ?',
-                (cutoff,)
-            )
-            db.commit()
-            
-            if result.rowcount > 0:
-                logger.info(f"Cleaned up {result.rowcount} old records")
+            deleted = bigtable_db.cleanup_old_records(days=RETENTION_DAYS)
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} old records from Bigtable")
         except Exception as e:
-            logger.error(f"Error cleaning up old records: {e}")
+            logger.error(f"Error cleaning up Bigtable records: {e}")
+    else:
+        with app.app_context():
+            try:
+                db = get_db()
+                cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
+                
+                result = db.execute(
+                    'DELETE FROM hashrate_history WHERE created_at < ?',
+                    (cutoff,)
+                )
+                db.commit()
+                
+                if result.rowcount > 0:
+                    logger.info(f"Cleaned up {result.rowcount} old records")
+            except Exception as e:
+                logger.error(f"Error cleaning up old records: {e}")
 
 
 def periodic_cleanup():
@@ -222,23 +254,50 @@ def receive_hashrate():
         hashrate_store.update(hashrate_data)
         
         # Store in database
-        db = get_db()
-        db.execute('''
-            INSERT INTO hashrate_history 
-            (instance_id, total_hashes, overall_hashrate, recent_hashrate, 
-             gpu_count, gpu_available, ip_address, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            hashrate_data.instance_id,
-            hashrate_data.total_hashes,
-            hashrate_data.overall_hashrate,
-            hashrate_data.recent_hashrate,
-            hashrate_data.gpu_count,
-            hashrate_data.gpu_available,
-            hashrate_data.ip_address,
-            hashrate_data.timestamp
-        ))
-        db.commit()
+        if USE_BIGTABLE:
+            # Prepare data for Bigtable
+            bigtable_data = {
+                'instance_id': hashrate_data.instance_id,
+                'total_hashes': hashrate_data.total_hashes,
+                'overall_hashrate': hashrate_data.overall_hashrate,
+                'recent_hashrate': hashrate_data.recent_hashrate,
+                'gpu_count': hashrate_data.gpu_count,
+                'gpu_available': hashrate_data.gpu_available,
+                'timestamp': hashrate_data.timestamp
+            }
+            
+            # Add optional GPU data if present
+            if 'hashrate' in data:
+                bigtable_data['hashrate'] = data['hashrate']
+            if 'temperature' in data:
+                bigtable_data['temperature'] = data['temperature']
+            if 'gpu_name' in data:
+                bigtable_data['gpu_name'] = data['gpu_name']
+            if 'power' in data:
+                bigtable_data['power'] = data['power']
+            if 'efficiency' in data:
+                bigtable_data['efficiency'] = data['efficiency']
+            
+            if not bigtable_db.save_hashrate(bigtable_data):
+                raise Exception("Failed to save to Bigtable")
+        else:
+            db = get_db()
+            db.execute('''
+                INSERT INTO hashrate_history 
+                (instance_id, total_hashes, overall_hashrate, recent_hashrate, 
+                 gpu_count, gpu_available, ip_address, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                hashrate_data.instance_id,
+                hashrate_data.total_hashes,
+                hashrate_data.overall_hashrate,
+                hashrate_data.recent_hashrate,
+                hashrate_data.gpu_count,
+                hashrate_data.gpu_available,
+                hashrate_data.ip_address,
+                hashrate_data.timestamp
+            ))
+            db.commit()
         
         # Emit update to connected clients
         socketio.emit('hashrate_update', {
@@ -258,8 +317,12 @@ def receive_hashrate():
 @app.route('/api/instances')
 def get_instances():
     """Get all active instances"""
-    instances = hashrate_store.get_all()
-    return jsonify([asdict(inst) for inst in instances])
+    if USE_BIGTABLE:
+        instances = bigtable_db.get_instances()
+        return jsonify(instances)
+    else:
+        instances = hashrate_store.get_all()
+        return jsonify([asdict(inst) for inst in instances])
 
 
 @app.route('/api/stats')
@@ -274,27 +337,31 @@ def get_instance_history(instance_id):
     try:
         hours = int(request.args.get('hours', 24))
         
-        db = get_db()
-        cutoff = datetime.now() - timedelta(hours=hours)
-        
-        cursor = db.execute('''
-            SELECT timestamp, recent_hashrate, total_hashes, gpu_count
-            FROM hashrate_history
-            WHERE instance_id = ? AND timestamp > ?
-            ORDER BY timestamp DESC
-            LIMIT 1000
-        ''', (instance_id, cutoff))
-        
-        history = []
-        for row in cursor:
-            history.append({
-                'timestamp': row['timestamp'],
-                'hashrate': row['recent_hashrate'],
-                'total_hashes': row['total_hashes'],
-                'gpu_count': row['gpu_count']
-            })
-        
-        return jsonify(history)
+        if USE_BIGTABLE:
+            history = bigtable_db.get_instance_history(instance_id, hours)
+            return jsonify(history)
+        else:
+            db = get_db()
+            cutoff = datetime.now() - timedelta(hours=hours)
+            
+            cursor = db.execute('''
+                SELECT timestamp, recent_hashrate, total_hashes, gpu_count
+                FROM hashrate_history
+                WHERE instance_id = ? AND timestamp > ?
+                ORDER BY timestamp DESC
+                LIMIT 1000
+            ''', (instance_id, cutoff))
+            
+            history = []
+            for row in cursor:
+                history.append({
+                    'timestamp': row['timestamp'],
+                    'hashrate': row['recent_hashrate'],
+                    'total_hashes': row['total_hashes'],
+                    'gpu_count': row['gpu_count']
+                })
+            
+            return jsonify(history)
         
     except Exception as e:
         logger.error(f"Error fetching history: {e}")
@@ -305,17 +372,38 @@ def get_instance_history(instance_id):
 def get_summary():
     """Get summary statistics for all instances"""
     try:
-        db = get_db()
-        
-        # Get 24-hour statistics
-        cutoff = datetime.now() - timedelta(hours=24)
-        
-        cursor = db.execute('''
-            SELECT 
-                COUNT(DISTINCT instance_id) as unique_instances,
-                SUM(total_hashes) as total_hashes_24h,
-                AVG(recent_hashrate) as avg_hashrate_24h,
-                MAX(recent_hashrate) as peak_hashrate_24h
+        if USE_BIGTABLE:
+            # For Bigtable, compute summary from current instances
+            instances = bigtable_db.get_instances()
+            if not instances:
+                return jsonify({
+                    'unique_instances': 0,
+                    'total_hashes_24h': 0,
+                    'avg_hashrate_24h': 0,
+                    'peak_hashrate_24h': 0
+                })
+            
+            total_hashes = sum(inst.get('total_hashes', 0) for inst in instances)
+            hashrates = [inst.get('hashrate', 0) for inst in instances]
+            
+            return jsonify({
+                'unique_instances': len(instances),
+                'total_hashes_24h': total_hashes,
+                'avg_hashrate_24h': sum(hashrates) / len(hashrates) if hashrates else 0,
+                'peak_hashrate_24h': max(hashrates) if hashrates else 0
+            })
+        else:
+            db = get_db()
+            
+            # Get 24-hour statistics
+            cutoff = datetime.now() - timedelta(hours=24)
+            
+            cursor = db.execute('''
+                SELECT 
+                    COUNT(DISTINCT instance_id) as unique_instances,
+                    SUM(total_hashes) as total_hashes_24h,
+                    AVG(recent_hashrate) as avg_hashrate_24h,
+                    MAX(recent_hashrate) as peak_hashrate_24h
             FROM hashrate_history
             WHERE timestamp > ?
         ''', (cutoff,))
