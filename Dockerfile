@@ -34,4 +34,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
 # Run the application - Railway needs sh -c for environment variable expansion
-CMD ["sh", "-c", "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT --timeout 120 --graceful-timeout 30 app:app"]
+# Using threads worker to support WebSocket while avoiding eventlet issues
+CMD ["sh", "-c", "gunicorn --worker-class gthread --workers 1 --threads 4 --bind 0.0.0.0:$PORT --timeout 120 --graceful-timeout 30 --log-level info app:app"]
