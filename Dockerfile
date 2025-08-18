@@ -15,9 +15,6 @@ COPY . .
 # Create directory for database
 RUN mkdir -p /app/data
 
-# Make start script executable
-RUN chmod +x start.py
-
 # Environment variables
 ENV DATABASE_PATH=/app/data/hashrate.db
 ENV PYTHONUNBUFFERED=1
