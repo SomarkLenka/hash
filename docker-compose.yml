@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  hashrate-monitor:
+    build: .
+    image: hashrate-monitor:latest
+    container_name: hashrate-monitor
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_PATH=/app/data/hashrate.db
+      - SECRET_KEY=change-this-in-production
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - monitor-network
+
+networks:
+  monitor-network:
+    driver: bridge
