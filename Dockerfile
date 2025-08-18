@@ -2,6 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install curl for health check
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -15,6 +18,7 @@ RUN mkdir -p /app/data
 # Environment variables
 ENV DATABASE_PATH=/app/data/hashrate.db
 ENV PYTHONUNBUFFERED=1
+ENV PORT=5000
 
 # Expose port
 EXPOSE 5000
@@ -23,5 +27,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
-# Run the application
-CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:5000", "app:app"]
+# Run the application - use PORT env var with default of 5000
+CMD gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:${PORT:-5000} app:app
