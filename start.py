@@ -1,0 +1,15 @@
+#!/usr/bin/env python
+import os
+import sys
+import subprocess
+
+port = os.environ.get('PORT', '5000')
+cmd = [
+    'gunicorn',
+    '--worker-class', 'eventlet',
+    '-w', '1',
+    '--bind', f'0.0.0.0:{port}',
+    'app:app'
+]
+
+subprocess.run(cmd)
