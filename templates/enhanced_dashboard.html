@@ -10,6 +10,18 @@
     <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
     <style>
+        body {
+            overflow-x: hidden;
+            max-width: 100vw;
+        }
+        .container {
+            max-height: 100vh;
+            overflow-y: auto;
+        }
+        .dashboard-panel {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
         .metric-card {
             background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
             transition: transform 0.3s, box-shadow 0.3s;
@@ -39,6 +51,10 @@
         .status-healthy { background: #10b981; }
         .status-warning { background: #f59e0b; }
         .status-critical { background: #ef4444; }
+        /* Fix chart container heights */
+        canvas {
+            max-height: 400px !important;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white">
@@ -509,15 +525,20 @@
 
             // Update hashrate chart
             const now = new Date().toLocaleTimeString();
-            hashrateChart.data.labels.push(now);
-            hashrateChart.data.datasets[0].data.push(data.stats.total_hashrate || 0);
             
-            // Keep last 30 points
-            if (hashrateChart.data.labels.length > 30) {
-                hashrateChart.data.labels.shift();
-                hashrateChart.data.datasets[0].data.shift();
+            // Only add new point if time has changed
+            if (hashrateChart.data.labels.length === 0 || 
+                hashrateChart.data.labels[hashrateChart.data.labels.length - 1] !== now) {
+                hashrateChart.data.labels.push(now);
+                hashrateChart.data.datasets[0].data.push(data.stats.total_hashrate || 0);
+                
+                // Keep last 30 points
+                while (hashrateChart.data.labels.length > 30) {
+                    hashrateChart.data.labels.shift();
+                    hashrateChart.data.datasets[0].data.shift();
+                }
+                hashrateChart.update('none');
             }
-            hashrateChart.update('none');
 
             // Update combined chart
             if (combinedChart.data.labels.length === 0 || 
@@ -525,12 +546,19 @@
                 combinedChart.data.labels.push(now);
                 combinedChart.data.datasets[0].data.push(data.stats.total_hashrate || 0);
                 
-                if (combinedChart.data.labels.length > 30) {
+                // Ensure both datasets have same length
+                if (combinedChart.data.datasets[1].data.length < combinedChart.data.labels.length) {
+                    combinedChart.data.datasets[1].data.push(0); // Add 0 for missing firehose data
+                }
+                
+                // Keep last 30 points
+                while (combinedChart.data.labels.length > 30) {
                     combinedChart.data.labels.shift();
                     combinedChart.data.datasets[0].data.shift();
+                    combinedChart.data.datasets[1].data.shift();
                 }
+                combinedChart.update('none');
             }
-            combinedChart.update('none');
         });
 
         // Fetch and update firehose metrics
@@ -582,7 +610,8 @@
                         throughputChart.data.labels.push(now);
                         throughputChart.data.datasets[0].data.push(data.firehose.bigtable_writes_per_second || 0);
                         
-                        if (throughputChart.data.labels.length > 30) {
+                        // Keep last 30 points
+                        while (throughputChart.data.labels.length > 30) {
                             throughputChart.data.labels.shift();
                             throughputChart.data.datasets[0].data.shift();
                         }
@@ -595,21 +624,26 @@
                         queueChart.data.labels.push(now);
                         queueChart.data.datasets[0].data.push(data.firehose.buffer_queue_depth || 0);
                         
-                        if (queueChart.data.labels.length > 30) {
+                        // Keep last 30 points
+                        while (queueChart.data.labels.length > 30) {
                             queueChart.data.labels.shift();
                             queueChart.data.datasets[0].data.shift();
                         }
                         queueChart.update('none');
                     }
 
-                    // Combined chart - Bigtable writes
-                    if (combinedChart.data.datasets[1].data.length < combinedChart.data.labels.length) {
-                        combinedChart.data.datasets[1].data.push(data.firehose.bigtable_writes_per_second || 0);
+                    // Combined chart - Update Bigtable writes to match labels
+                    if (combinedChart.data.labels.length > 0) {
+                        // Ensure dataset 1 has same length as labels
+                        while (combinedChart.data.datasets[1].data.length < combinedChart.data.labels.length) {
+                            combinedChart.data.datasets[1].data.push(data.firehose.bigtable_writes_per_second || 0);
+                        }
+                        // Trim if too long
+                        while (combinedChart.data.datasets[1].data.length > combinedChart.data.labels.length) {
+                            combinedChart.data.datasets[1].data.shift();
+                        }
+                        combinedChart.update('none');
                     }
-                    if (combinedChart.data.datasets[1].data.length > 30) {
-                        combinedChart.data.datasets[1].data.shift();
-                    }
-                    combinedChart.update('none');
 
                     // Update system health
                     updateSystemHealth(data);
