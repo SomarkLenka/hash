@@ -25,6 +25,10 @@ ENV PYTHONUNBUFFERED=1
 # BIGTABLE_INSTANCE_ID=hash-generator-instance
 # BIGTABLE_TABLE_ID=hashes
 # GOOGLE_APPLICATION_CREDENTIALS_JSON={paste entire JSON content}
+#
+# Firehose monitoring configuration (optional):
+# ENABLE_FIREHOSE_MONITOR=true
+# This enables the enhanced dashboard with Bigtable ingestion monitoring
 
 # Expose port
 EXPOSE 5000
