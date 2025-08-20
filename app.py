@@ -335,10 +335,13 @@ def receive_hashrate():
             db.commit()
         
         # Emit update to connected clients
-        socketio.emit('hashrate_update', {
-            'instance': asdict(hashrate_data),
-            'stats': hashrate_store.get_stats()
-        })
+        try:
+            socketio.emit('hashrate_update', {
+                'instance': asdict(hashrate_data),
+                'stats': hashrate_store.get_stats()
+            }, namespace='/', broadcast=True)
+        except Exception as e:
+            logger.warning(f"Failed to emit WebSocket update: {e}")
         
         logger.info(f"Received hashrate from {hashrate_data.instance_id}: {hashrate_data.recent_hashrate:.2f} H/s")
         
@@ -493,19 +496,25 @@ def health_check():
 @socketio.on('connect')
 def handle_connect():
     """Handle WebSocket connection"""
-    logger.info(f"Client connected: {request.sid}")
-    
-    # Send initial data
-    emit('initial_data', {
-        'instances': [asdict(inst) for inst in hashrate_store.get_all()],
-        'stats': hashrate_store.get_stats()
-    })
+    try:
+        logger.info(f"Client connected: {request.sid}")
+        
+        # Send initial data
+        emit('initial_data', {
+            'instances': [asdict(inst) for inst in hashrate_store.get_all()],
+            'stats': hashrate_store.get_stats()
+        })
+    except Exception as e:
+        logger.error(f"Error handling connection: {e}")
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle WebSocket disconnection"""
-    logger.info(f"Client disconnected: {request.sid}")
+    try:
+        logger.info(f"Client disconnected: {request.sid}")
+    except Exception as e:
+        logger.error(f"Error handling disconnection: {e}")
 
 
 if __name__ == '__main__':
