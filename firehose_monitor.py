@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from collections import deque
 import threading
-from flask import Blueprint, jsonify, render_template_string
+from flask import Blueprint, jsonify, render_template_string, request
 
 # Configure logging
 logging.basicConfig(
