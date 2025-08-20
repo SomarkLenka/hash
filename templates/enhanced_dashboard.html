@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hashrate & Firehose Monitor Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <style>
+        .metric-card {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .metric-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .alert-badge {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .tab-active {
+            border-bottom: 3px solid #3b82f6;
+        }
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-healthy { background: #10b981; }
+        .status-warning { background: #f59e0b; }
+        .status-critical { background: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Header -->
+        <div class="mb-8 text-center">
+            <h1 class="text-5xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
+                Hashrate & Firehose Monitor
+            </h1>
+            <p class="text-gray-400">Real-time monitoring of hash generation and Bigtable ingestion pipeline</p>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="flex space-x-1 mb-8 border-b border-gray-700">
+            <button onclick="switchTab('hashrate')" id="tab-hashrate" class="px-6 py-3 text-sm font-medium hover:bg-gray-800 tab-active">
+                Hashrate Monitor
+            </button>
+            <button onclick="switchTab('firehose')" id="tab-firehose" class="px-6 py-3 text-sm font-medium hover:bg-gray-800">
+                Firehose Pipeline
+            </button>
+            <button onclick="switchTab('combined')" id="tab-combined" class="px-6 py-3 text-sm font-medium hover:bg-gray-800">
+                Combined View
+            </button>
+        </div>
+
+        <!-- Hashrate Dashboard -->
+        <div id="dashboard-hashrate" class="dashboard-panel">
+            <!-- Hashrate Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="metric-card rounded-lg p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-400 text-sm">Active Instances</p>
+                            <p class="text-3xl font-bold" id="active-instances">0</p>
+                        </div>
+                        <svg class="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="metric-card rounded-lg p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-400 text-sm">Total Hashrate</p>
+                            <p class="text-3xl font-bold" id="total-hashrate">0 H/s</p>
+                        </div>
+                        <svg class="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="metric-card rounded-lg p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-400 text-sm">Total Hashes</p>
+                            <p class="text-3xl font-bold" id="total-hashes">0</p>
+                        </div>
+                        <svg class="w-12 h-12 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="metric-card rounded-lg p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-400 text-sm">GPUs Active</p>
+                            <p class="text-3xl font-bold" id="total-gpus">0</p>
+                        </div>
+                        <svg class="w-12 h-12 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hashrate Chart -->
+            <div class="bg-gray-800 rounded-lg p-6 mb-8">
+                <h3 class="text-xl font-semibold mb-4">Hashrate Over Time</h3>
+                <canvas id="hashrate-chart" height="100"></canvas>
+            </div>
+        </div>
+
+        <!-- Firehose Dashboard -->
+        <div id="dashboard-firehose" class="dashboard-panel hidden">
+            <!-- Firehose Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="metric-card rounded-lg p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-400 text-sm">Bigtable Writes/sec</p>
+                            <p class="text-3xl font-bold" id="bigtable-writes">0</p>
+                        </div>
+                        <svg class="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"></path>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="metric-card rounded-lg p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-400 text-sm">Write Latency</p>
+                            <p class="text-3xl font-bold" id="write-latency">0 ms</p>
+                        </div>
+                        <svg class="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="metric-card rounded-lg p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-400 text-sm">Buffer Queue</p>
+                            <p class="text-3xl font-bold" id="buffer-queue">0</p>
+                        </div>
+                        <svg class="w-12 h-12 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="metric-card rounded-lg p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-400 text-sm">Worker Pool</p>
+                            <p class="text-3xl font-bold" id="worker-pool">0</p>
+                        </div>
+                        <svg class="w-12 h-12 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Additional Firehose Metrics -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h4 class="text-sm text-gray-400 mb-2">Error Rate</h4>
+                    <p class="text-2xl font-bold" id="error-rate">0.00%</p>
+                    <div class="mt-2 h-2 bg-gray-700 rounded">
+                        <div id="error-rate-bar" class="h-2 bg-red-500 rounded" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h4 class="text-sm text-gray-400 mb-2">Batch Efficiency</h4>
+                    <p class="text-2xl font-bold" id="batch-efficiency">0%</p>
+                    <div class="mt-2 h-2 bg-gray-700 rounded">
+                        <div id="efficiency-bar" class="h-2 bg-green-500 rounded" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h4 class="text-sm text-gray-400 mb-2">Worker Utilization</h4>
+                    <p class="text-2xl font-bold" id="worker-utilization">0%</p>
+                    <div class="mt-2 h-2 bg-gray-700 rounded">
+                        <div id="utilization-bar" class="h-2 bg-blue-500 rounded" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Firehose Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h3 class="text-xl font-semibold mb-4">Throughput</h3>
+                    <canvas id="throughput-chart" height="150"></canvas>
+                </div>
+
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h3 class="text-xl font-semibold mb-4">Queue Depth</h3>
+                    <canvas id="queue-chart" height="150"></canvas>
+                </div>
+            </div>
+
+            <!-- Alerts Panel -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl font-semibold mb-4">
+                    Active Alerts
+                    <span id="alert-count" class="ml-2 px-2 py-1 bg-red-600 text-xs rounded-full alert-badge">0</span>
+                </h3>
+                <div id="alerts-container" class="space-y-2 max-h-64 overflow-y-auto">
+                    <!-- Alerts will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Combined View Dashboard -->
+        <div id="dashboard-combined" class="dashboard-panel hidden">
+            <!-- Combined Overview -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <!-- Hash Generation Side -->
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h3 class="text-xl font-semibold mb-4">Hash Generation</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Instances</span>
+                            <span class="font-bold" id="comb-instances">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Hashrate</span>
+                            <span class="font-bold" id="comb-hashrate">0 H/s</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Total Hashes</span>
+                            <span class="font-bold" id="comb-hashes">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">GPUs</span>
+                            <span class="font-bold" id="comb-gpus">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bigtable Ingestion Side -->
+                <div class="bg-gray-800 rounded-lg p-6">
+                    <h3 class="text-xl font-semibold mb-4">Bigtable Ingestion</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Writes/sec</span>
+                            <span class="font-bold" id="comb-writes">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Latency</span>
+                            <span class="font-bold" id="comb-latency">0 ms</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Queue</span>
+                            <span class="font-bold" id="comb-queue">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Workers</span>
+                            <span class="font-bold" id="comb-workers">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Combined Chart -->
+            <div class="bg-gray-800 rounded-lg p-6 mb-8">
+                <h3 class="text-xl font-semibold mb-4">System Overview</h3>
+                <canvas id="combined-chart" height="100"></canvas>
+            </div>
+
+            <!-- System Health -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl font-semibold mb-4">System Health</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="flex items-center">
+                        <span class="status-indicator status-healthy"></span>
+                        <span>Hash Generation: <strong id="health-hash">Healthy</strong></span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="status-indicator status-healthy"></span>
+                        <span>Bigtable Pipeline: <strong id="health-pipeline">Healthy</strong></span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="status-indicator status-healthy"></span>
+                        <span>Overall System: <strong id="health-overall">Healthy</strong></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Socket.IO
+        const socket = io();
+        
+        // Chart instances
+        let hashrateChart, throughputChart, queueChart, combinedChart;
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Hide all panels
+            document.querySelectorAll('.dashboard-panel').forEach(panel => {
+                panel.classList.add('hidden');
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('[id^="tab-"]').forEach(tab => {
+                tab.classList.remove('tab-active');
+            });
+            
+            // Show selected panel and activate tab
+            document.getElementById(`dashboard-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabName}`).classList.add('tab-active');
+        }
+
+        // Initialize charts
+        function initCharts() {
+            // Hashrate Chart
+            const hashrateCtx = document.getElementById('hashrate-chart').getContext('2d');
+            hashrateChart = new Chart(hashrateCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Total Hashrate',
+                        data: [],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                        },
+                        y: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                        }
+                    }
+                }
+            });
+
+            // Throughput Chart
+            const throughputCtx = document.getElementById('throughput-chart').getContext('2d');
+            throughputChart = new Chart(throughputCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Writes/sec',
+                        data: [],
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                        },
+                        y: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                        }
+                    }
+                }
+            });
+
+            // Queue Chart
+            const queueCtx = document.getElementById('queue-chart').getContext('2d');
+            queueChart = new Chart(queueCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Queue Depth',
+                        data: [],
+                        borderColor: 'rgb(168, 85, 247)',
+                        backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                        },
+                        y: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                        }
+                    }
+                }
+            });
+
+            // Combined Chart
+            const combinedCtx = document.getElementById('combined-chart').getContext('2d');
+            combinedChart = new Chart(combinedCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Hashrate (H/s)',
+                            data: [],
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Bigtable Writes/s',
+                            data: [],
+                            borderColor: 'rgb(34, 197, 94)',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: 'rgba(255, 255, 255, 0.7)' }
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: 'rgba(59, 130, 246, 0.7)' }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            grid: { drawOnChartArea: false },
+                            ticks: { color: 'rgba(34, 197, 94, 0.7)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update hashrate data
+        socket.on('hashrate_update', function(data) {
+            // Update hashrate metrics
+            document.getElementById('active-instances').textContent = data.stats.total_instances || 0;
+            document.getElementById('total-hashrate').textContent = formatHashrate(data.stats.total_hashrate || 0);
+            document.getElementById('total-hashes').textContent = formatNumber(data.stats.total_hashes || 0);
+            document.getElementById('total-gpus').textContent = data.stats.total_gpus || 0;
+
+            // Update combined view
+            document.getElementById('comb-instances').textContent = data.stats.total_instances || 0;
+            document.getElementById('comb-hashrate').textContent = formatHashrate(data.stats.total_hashrate || 0);
+            document.getElementById('comb-hashes').textContent = formatNumber(data.stats.total_hashes || 0);
+            document.getElementById('comb-gpus').textContent = data.stats.total_gpus || 0;
+
+            // Update hashrate chart
+            const now = new Date().toLocaleTimeString();
+            hashrateChart.data.labels.push(now);
+            hashrateChart.data.datasets[0].data.push(data.stats.total_hashrate || 0);
+            
+            // Keep last 30 points
+            if (hashrateChart.data.labels.length > 30) {
+                hashrateChart.data.labels.shift();
+                hashrateChart.data.datasets[0].data.shift();
+            }
+            hashrateChart.update('none');
+
+            // Update combined chart
+            if (combinedChart.data.labels.length === 0 || 
+                combinedChart.data.labels[combinedChart.data.labels.length - 1] !== now) {
+                combinedChart.data.labels.push(now);
+                combinedChart.data.datasets[0].data.push(data.stats.total_hashrate || 0);
+                
+                if (combinedChart.data.labels.length > 30) {
+                    combinedChart.data.labels.shift();
+                    combinedChart.data.datasets[0].data.shift();
+                }
+            }
+            combinedChart.update('none');
+        });
+
+        // Fetch and update firehose metrics
+        async function updateFirehoseMetrics() {
+            try {
+                const response = await fetch('/api/firehose/metrics');
+                const data = await response.json();
+
+                if (data.firehose) {
+                    // Update firehose metrics
+                    document.getElementById('bigtable-writes').textContent = 
+                        Math.round(data.firehose.bigtable_writes_per_second || 0);
+                    document.getElementById('write-latency').textContent = 
+                        (data.firehose.bigtable_write_latency_ms || 0).toFixed(1) + ' ms';
+                    document.getElementById('buffer-queue').textContent = 
+                        formatNumber(data.firehose.buffer_queue_depth || 0);
+                    document.getElementById('worker-pool').textContent = 
+                        data.firehose.worker_pool_size || 0;
+
+                    // Update percentages
+                    const errorRate = (data.firehose.bigtable_error_rate || 0) * 100;
+                    document.getElementById('error-rate').textContent = errorRate.toFixed(2) + '%';
+                    document.getElementById('error-rate-bar').style.width = Math.min(errorRate, 100) + '%';
+
+                    const efficiency = (data.firehose.batch_efficiency || 0) * 100;
+                    document.getElementById('batch-efficiency').textContent = efficiency.toFixed(0) + '%';
+                    document.getElementById('efficiency-bar').style.width = efficiency + '%';
+
+                    const utilization = (data.firehose.worker_utilization || 0) * 100;
+                    document.getElementById('worker-utilization').textContent = utilization.toFixed(0) + '%';
+                    document.getElementById('utilization-bar').style.width = utilization + '%';
+
+                    // Update combined view
+                    document.getElementById('comb-writes').textContent = 
+                        Math.round(data.firehose.bigtable_writes_per_second || 0);
+                    document.getElementById('comb-latency').textContent = 
+                        (data.firehose.bigtable_write_latency_ms || 0).toFixed(1) + ' ms';
+                    document.getElementById('comb-queue').textContent = 
+                        formatNumber(data.firehose.buffer_queue_depth || 0);
+                    document.getElementById('comb-workers').textContent = 
+                        data.firehose.worker_pool_size || 0;
+
+                    // Update charts
+                    const now = new Date().toLocaleTimeString();
+                    
+                    // Throughput chart
+                    if (throughputChart.data.labels.length === 0 || 
+                        throughputChart.data.labels[throughputChart.data.labels.length - 1] !== now) {
+                        throughputChart.data.labels.push(now);
+                        throughputChart.data.datasets[0].data.push(data.firehose.bigtable_writes_per_second || 0);
+                        
+                        if (throughputChart.data.labels.length > 30) {
+                            throughputChart.data.labels.shift();
+                            throughputChart.data.datasets[0].data.shift();
+                        }
+                        throughputChart.update('none');
+                    }
+
+                    // Queue chart
+                    if (queueChart.data.labels.length === 0 || 
+                        queueChart.data.labels[queueChart.data.labels.length - 1] !== now) {
+                        queueChart.data.labels.push(now);
+                        queueChart.data.datasets[0].data.push(data.firehose.buffer_queue_depth || 0);
+                        
+                        if (queueChart.data.labels.length > 30) {
+                            queueChart.data.labels.shift();
+                            queueChart.data.datasets[0].data.shift();
+                        }
+                        queueChart.update('none');
+                    }
+
+                    // Combined chart - Bigtable writes
+                    if (combinedChart.data.datasets[1].data.length < combinedChart.data.labels.length) {
+                        combinedChart.data.datasets[1].data.push(data.firehose.bigtable_writes_per_second || 0);
+                    }
+                    if (combinedChart.data.datasets[1].data.length > 30) {
+                        combinedChart.data.datasets[1].data.shift();
+                    }
+                    combinedChart.update('none');
+
+                    // Update system health
+                    updateSystemHealth(data);
+                }
+
+                // Update alerts
+                if (data.alerts) {
+                    updateAlerts(data.alerts);
+                }
+
+            } catch (error) {
+                console.error('Failed to fetch firehose metrics:', error);
+            }
+        }
+
+        // Update alerts
+        function updateAlerts(alerts) {
+            const container = document.getElementById('alerts-container');
+            const alertCount = document.getElementById('alert-count');
+            
+            alertCount.textContent = alerts.length;
+            
+            if (alerts.length === 0) {
+                container.innerHTML = '<p class="text-gray-500">No active alerts</p>';
+            } else {
+                container.innerHTML = alerts.map(alert => `
+                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded">
+                        <div class="flex items-center">
+                            <span class="status-indicator status-${alert.level === 'critical' ? 'critical' : alert.level === 'warning' ? 'warning' : 'healthy'}"></span>
+                            <div>
+                                <p class="font-medium">${alert.message}</p>
+                                <p class="text-xs text-gray-400">${new Date(alert.timestamp).toLocaleString()}</p>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // Update system health
+        function updateSystemHealth(data) {
+            // Determine health status based on metrics
+            const hashHealth = data.stats && data.stats.total_instances > 0 ? 'Healthy' : 'Degraded';
+            const pipelineHealth = data.firehose && data.firehose.bigtable_error_rate < 0.01 ? 'Healthy' : 
+                                  data.firehose && data.firehose.bigtable_error_rate < 0.05 ? 'Warning' : 'Critical';
+            const overallHealth = hashHealth === 'Healthy' && pipelineHealth === 'Healthy' ? 'Healthy' : 
+                                 hashHealth === 'Degraded' || pipelineHealth === 'Critical' ? 'Critical' : 'Warning';
+
+            document.getElementById('health-hash').textContent = hashHealth;
+            document.getElementById('health-pipeline').textContent = pipelineHealth;
+            document.getElementById('health-overall').textContent = overallHealth;
+
+            // Update status indicators
+            updateHealthIndicator('health-hash', hashHealth);
+            updateHealthIndicator('health-pipeline', pipelineHealth);
+            updateHealthIndicator('health-overall', overallHealth);
+        }
+
+        // Update health indicator
+        function updateHealthIndicator(elementId, status) {
+            const element = document.getElementById(elementId);
+            const indicator = element.previousElementSibling;
+            
+            indicator.classList.remove('status-healthy', 'status-warning', 'status-critical');
+            if (status === 'Healthy') {
+                indicator.classList.add('status-healthy');
+            } else if (status === 'Warning') {
+                indicator.classList.add('status-warning');
+            } else {
+                indicator.classList.add('status-critical');
+            }
+        }
+
+        // Format numbers
+        function formatNumber(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+            return num.toString();
+        }
+
+        // Format hashrate
+        function formatHashrate(rate) {
+            if (rate >= 1e12) return (rate / 1e12).toFixed(2) + ' TH/s';
+            if (rate >= 1e9) return (rate / 1e9).toFixed(2) + ' GH/s';
+            if (rate >= 1e6) return (rate / 1e6).toFixed(2) + ' MH/s';
+            if (rate >= 1e3) return (rate / 1e3).toFixed(2) + ' KH/s';
+            return rate.toFixed(2) + ' H/s';
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            
+            // Update firehose metrics every 2 seconds
+            setInterval(updateFirehoseMetrics, 2000);
+            updateFirehoseMetrics();
+        });
+    </script>
+</body>
+</html>

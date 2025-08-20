@@ -246,6 +246,9 @@ def periodic_cleanup():
 @app.route('/')
 def index():
     """Dashboard page"""
+    # Use enhanced dashboard if firehose monitoring is enabled
+    if os.environ.get('ENABLE_FIREHOSE_MONITOR', 'false').lower() == 'true':
+        return render_template('enhanced_dashboard.html')
     return render_template('dashboard.html')
 
 
@@ -508,6 +511,15 @@ def handle_disconnect():
 if __name__ == '__main__':
     # Initialize database
     init_db()
+    
+    # Integrate firehose monitoring if enabled
+    if os.environ.get('ENABLE_FIREHOSE_MONITOR', 'false').lower() == 'true':
+        try:
+            from firehose_monitor import integrate_firehose_monitoring
+            firehose_monitor = integrate_firehose_monitoring(app)
+            logger.info("Firehose monitoring enabled and integrated")
+        except Exception as e:
+            logger.error(f"Failed to enable firehose monitoring: {e}")
     
     # Start cleanup thread
     cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
